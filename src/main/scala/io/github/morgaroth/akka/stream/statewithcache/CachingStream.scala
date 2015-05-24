@@ -55,6 +55,7 @@ object models {
 }
 
 object CachingStream {
+
   def main(args: Array[String]) {
     implicit val system = ActorSystem("Sys")
     implicit val materializer = ActorFlowMaterializer()
@@ -65,12 +66,12 @@ object CachingStream {
 
       val bcast = builder.add(Broadcast[RootData](2))
 
-      val saveElems = Flow[RootData]
+      val saveElem = Flow[RootData]
         .map(_.elem)
         .map(x => ElemRaw(0, x.data))
         .transform(() => elemsStage)
 
-      val transformRaws = Flow[RootData]
+      val transformRaw = Flow[RootData]
         .map(x => RootDataRaw.apply(0, x.info, 0))
 
       val zip = builder.add(Zip[Int, RootDataRaw]())
@@ -82,8 +83,8 @@ object CachingStream {
         .map(RootDataRaw.save)
 
       //@formatter:off
-      source ~> bcast ~> saveElems     ~> zip.in0; zip.out ~> updateElemId ~> saveRaw ~> Sink.ignore
-                bcast ~> transformRaws ~> zip.in1
+      source ~> bcast ~> saveElem     ~> zip.in0; zip.out ~> updateElemId ~> saveRaw ~> Sink.ignore
+                bcast ~> transformRaw ~> zip.in1
       //@formatter:on
     }
     g.run()
@@ -105,17 +106,4 @@ object CachingStream {
   }
 
   def elemsStage = genericIdElemsCache((e: ElemRaw) => e.data)(e => ElemRaw.save(ElemRaw(0, e.data)).id)
-
-  //  def elemsStage = new StatefulStage[ElemRaw, Int] {
-  //    var idsCache = Map.empty[String, Int]
-  //
-  //    override def initial: StageState[ElemRaw, Int] = new State {
-  //      override def onPush(elem: ElemRaw, ctx: Context[Int]): SyncDirective = {
-  //        if (!idsCache.contains(elem.data)) {
-  //          idsCache += elem.data -> ElemRaw.save(ElemRaw(0, elem.data)).id
-  //        }
-  //        emit(List(idsCache(elem.data)).iterator, ctx)
-  //      }
-  //    }
-  //  }
 }
