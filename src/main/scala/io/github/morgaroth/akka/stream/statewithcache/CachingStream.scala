@@ -1,13 +1,14 @@
 package io.github.morgaroth.akka.stream.statewithcache
 
 import akka.actor.ActorSystem
-import akka.stream.{FanInShape2, UniformFanOutShape, ActorFlowMaterializer}
+import akka.stream._
 import akka.stream.scaladsl._
 import akka.stream.stage.{SyncDirective, Context, StageState, StatefulStage}
-import io.github.morgaroth.akka.stream.statewithcache.models.{RootDataRaw, ElemRaw, RootData}
+import _root_.io.github.morgaroth.akka.stream.statewithcache.models.{RootDataRaw, ElemRaw, RootData}
 
 import scala.collection.immutable.IndexedSeq
 import scala.concurrent.Future
+import scala.language.implicitConversions
 import scala.util.Random
 
 object models {
@@ -54,6 +55,17 @@ object models {
 
 }
 
+object MyImplicits {
+
+  import FlowGraph.Implicits._
+
+  implicit def unwrap_out_call[A, B, C](in: FanInShape2[A, B, C]): PortOps[C, Unit] = port2flow(in.out)
+
+  implicit def unwrap_in0_call[A, B, C](in: FanInShape2[A, B, C]): Inlet[A] = in.in0
+
+  implicit def unwrap_in1_call[A, B, C](in: FanInShape2[A, B, C]): Inlet[B] = in.in1
+}
+
 object CachingStream {
 
   def main(args: Array[String]) {
@@ -62,6 +74,7 @@ object CachingStream {
 
     val g = FlowGraph.closed() { implicit builder: FlowGraph.Builder[Unit] =>
       import FlowGraph.Implicits._
+      import MyImplicits._
       val source = Source(1 until 100 map (x => RootData.generate))
 
       val bcast = builder.add(Broadcast[RootData](2))
@@ -74,7 +87,7 @@ object CachingStream {
       val transformRaw = Flow[RootData]
         .map(x => RootDataRaw.apply(0, x.info, 0))
 
-      val zip = builder.add(Zip[Int, RootDataRaw]())
+      val zip: FanInShape2[Int, RootDataRaw, (Int, RootDataRaw)] = builder.add(Zip[Int, RootDataRaw]())
 
       val updateElemId = Flow[(Int, RootDataRaw)]
         .map(x => x._2.copy(elemId = x._1))
@@ -83,8 +96,8 @@ object CachingStream {
         .map(RootDataRaw.save)
 
       //@formatter:off
-      source ~> bcast ~> saveElem     ~> zip.in0; zip.out ~> updateElemId ~> saveRaw ~> Sink.ignore
-                bcast ~> transformRaw ~> zip.in1
+      source ~> bcast ~> saveElem     ~> zip ; zip ~> updateElemId ~> saveRaw ~> Sink.ignore
+                bcast ~> transformRaw ~> zip
       //@formatter:on
     }
     g.run()
